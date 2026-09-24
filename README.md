@@ -88,7 +88,7 @@ Lifecycle methods are synchronized for copies of the same object. Named-file `re
 ## Local validation
 
 ```sh
-just ecosystem-test tempfile
+(cd ../verification && just ecosystem-test tempfile)
 ```
 
 GoML tests cover permissions, validation, complete I/O, sparse writes,
