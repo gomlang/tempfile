@@ -1,0 +1,88 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::io;
+use std::task;
+use std::testing;
+
+#[test]
+fn exact_positioned_io_preserves_cursor_and_partial_eof_for_every_file_kind() -> () {
+    let named = must(tempfile::NamedTempFile::new());
+    defer {
+        let _ = named.close();
+    };
+    must(named.seek(tempfile::SeekFrom::Start(2)));
+    must(named.write_all_at(content("abcd").as_slice(), 0));
+    let output = Vec::from_array([0, 0, 0]);
+    must(named.read_exact_at(output.as_mut_slice(), 1));
+    testing::assert(output == content("bcd").to_vec());
+    testing::assert_eq(must(named.seek(tempfile::SeekFrom::Current(0))), 2);
+    let file = must(named.duplicate());
+    defer {
+        let _ = file.close();
+    };
+    must(file.write_all_at(content("XY").as_slice(), 2));
+    testing::assert_eq(
+        testing::expect_err(file.read_exact_at(output.as_mut_slice(), 2), "partial eof").kind(),
+        io::ErrorKind::UnexpectedEof,
+    );
+    testing::assert(output == content("XYd").to_vec());
+    testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 2);
+    let empty: Vec[byte] = Vec::new();
+    must(file.read_exact_at(empty.as_mut_slice(), 9223372036854775807));
+    must(named.write_all_at(empty.as_slice(), 9223372036854775807));
+    must(named.close());
+    must(file.read_exact_at(output.as_mut_slice(), 0));
+    testing::assert_err(named.read_exact_at(empty.as_mut_slice(), 0));
+    testing::assert_err(named.write_all_at(empty.as_slice(), 0));
+    must(file.close());
+    testing::assert_err(file.read_exact_at(empty.as_mut_slice(), 0));
+    testing::assert_err(file.write_all_at(empty.as_slice(), 0));
+    for limit in Vec::from_array([0, 8]) {
+        let spool = must(tempfile::SpooledTempFile::new(limit));
+        defer {
+            let _ = spool.close();
+        };
+        must(spool.seek(tempfile::SeekFrom::Start(1)));
+        must(spool.write_all_at(content("abc").as_slice(), 0));
+        must(spool.read_exact_at(output.as_mut_slice(), 0));
+        testing::assert(output == content("abc").to_vec());
+        testing::assert_eq(
+            testing::expect_err(spool.read_exact_at(output.as_mut_slice(), 1), "partial eof").kind(),
+            io::ErrorKind::UnexpectedEof,
+        );
+        testing::assert(output == content("bcc").to_vec());
+        testing::assert_eq(must(spool.seek(tempfile::SeekFrom::Current(0))), 1);
+        testing::assert_err(spool.write_all_at(content("x").as_slice(), 9223372036854775807));
+        testing::assert_eq(must(spool.len()), 3);
+        must(spool.close());
+        testing::assert_err(spool.read_exact_at(empty.as_mut_slice(), 0));
+        testing::assert_err(spool.write_all_at(empty.as_slice(), 0));
+    }
+}
+
+#[test]
+fn exact_spool_regions_remain_independent_during_concurrent_rollover() -> () {
+    let spool = must(tempfile::SpooledTempFile::new(16));
+    defer {
+        let _ = spool.close();
+    };
+    must(spool.seek(tempfile::SeekFrom::Start(5)));
+    task::scope(
+        |scope| {
+            for index in 0..24 {
+                let _ = scope.spawn(
+                    |_| {
+                        let bytes = Vec::from_array([index.to_u8(), index.to_u8()]);
+                        must(spool.write_all_at(bytes.as_slice(), (index * 2).to_i64()));
+                        let output = Vec::from_array([0, 0]);
+                        must(spool.read_exact_at(output.as_mut_slice(), (index * 2).to_i64()));
+                        testing::assert(output == bytes);
+                    },
+                );
+            }
+        },
+    );
+    testing::assert(spool.is_rolled());
+    testing::assert_eq(must(spool.seek(tempfile::SeekFrom::Current(0))), 5);
+}

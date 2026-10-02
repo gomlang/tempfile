@@ -1,0 +1,128 @@
+package tempfile;
+
+use std::io;
+use std::testing;
+
+#[test]
+fn exact_positioned_loops_retry_interruptions_and_advance_only_successful_bytes() -> () {
+    let input = Vec::from_array([b'a', b'b', b'c']);
+    let output = Vec::from_array([0, 0, 0]);
+    let reads = Ref::new(0);
+    let positions = Vec::new();
+    testing::assert_ok(
+        read_exact_positioned(
+            output.as_mut_slice(),
+            7,
+            |buffer, offset| {
+                positions.push(offset);
+                reads.set(reads.get() + 1);
+                if reads.get() == 2 {
+                    return Result::Err(failure(io::ErrorKind::Interrupted, "test", "retry"))
+                }
+                buffer[0] = input[(offset - 7).to_isize()];
+                Result::Ok(1)
+            },
+        ),
+    );
+    testing::assert(output == input);
+    testing::assert(positions == Vec::from_array([7, 8, 8, 9]));
+    let writes = Ref::new(0);
+    let written = Vec::new();
+    let positions = Vec::new();
+    testing::assert_ok(
+        write_all_positioned(
+            input.as_slice(),
+            11,
+            |buffer, offset| {
+                positions.push(offset);
+                writes.set(writes.get() + 1);
+                if writes.get() == 1 {
+                    return Result::Err(failure(io::ErrorKind::Interrupted, "test", "retry"))
+                }
+                written.push(buffer[0]);
+                Result::Ok(1)
+            },
+        ),
+    );
+    testing::assert(written == input);
+    testing::assert(positions == Vec::from_array([11, 11, 12, 13]));
+}
+
+#[test]
+fn exact_positioned_loops_reject_no_progress_invalid_counts_and_ranges() -> () {
+    let buffer = Vec::from_array([b'a', b'b']);
+    testing::assert_eq(
+        testing::expect_err(
+            read_exact_positioned(buffer.as_mut_slice(), 0, |_, _| Result::Ok(0)),
+            "eof",
+        ).kind(),
+        io::ErrorKind::UnexpectedEof,
+    );
+    testing::assert_eq(
+        testing::expect_err(
+            write_all_positioned(buffer.as_slice(), 0, |_, _| Result::Ok(0)),
+            "zero",
+        ).kind(),
+        io::ErrorKind::WriteZero,
+    );
+    for count in Vec::from_array([-1, 3]) {
+        testing::assert_eq(
+            testing::expect_err(
+                read_exact_positioned(buffer.as_mut_slice(), 0, |_, _| Result::Ok(count)),
+                "bad read count",
+            ).kind(),
+            io::ErrorKind::InvalidData,
+        );
+        testing::assert_eq(
+            testing::expect_err(
+                write_all_positioned(buffer.as_slice(), 0, |_, _| Result::Ok(count)),
+                "bad write count",
+            ).kind(),
+            io::ErrorKind::InvalidData,
+        );
+    }
+    let calls = Ref::new(0);
+    for offset in Vec::from_array([-1, 9223372036854775806]) {
+        testing::assert_eq(
+            testing::expect_err(
+                read_exact_positioned(
+                    buffer.as_mut_slice(),
+                    offset,
+                    |_, _| {
+                        calls.set(calls.get() + 1);
+                        Result::Ok(1)
+                    },
+                ),
+                "read range",
+            ).kind(),
+            io::ErrorKind::InvalidInput,
+        );
+        testing::assert_eq(
+            testing::expect_err(
+                write_all_positioned(
+                    buffer.as_slice(),
+                    offset,
+                    |_, _| {
+                        calls.set(calls.get() + 1);
+                        Result::Ok(1)
+                    },
+                ),
+                "write range",
+            ).kind(),
+            io::ErrorKind::InvalidInput,
+        );
+    }
+    testing::assert_eq(calls.get(), 0);
+    let positions = Vec::new();
+    testing::assert_ok(
+        write_all_positioned(
+            buffer.as_slice(),
+            9223372036854775805,
+            |_, offset| {
+                positions.push(offset);
+                Result::Ok(1)
+            },
+        ),
+    );
+    testing::assert(positions == Vec::from_array([9223372036854775805, 9223372036854775806]));
+}

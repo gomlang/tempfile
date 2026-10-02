@@ -1,0 +1,22 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::io;
+use std::testing;
+
+#[test]
+fn exact_positioned_io_survives_rollover_and_reports_partial_eof_downstream() -> () {
+    let file = testing::expect_ok(tempfile::SpooledTempFile::new(2), "spool");
+    defer {
+        let _ = file.close();
+    };
+    testing::assert_ok(file.write_all_at(Vec::from_array([b'x', b'y']).as_slice(), 3));
+    testing::assert(file.is_rolled());
+    let output = Vec::from_array([0, 0, 0]);
+    testing::assert_eq(
+        testing::expect_err(file.read_exact_at(output.as_mut_slice(), 3), "short file").kind(),
+        io::ErrorKind::UnexpectedEof,
+    );
+    testing::assert(output == Vec::from_array([b'x', b'y', 0]));
+    testing::assert_eq(testing::expect_ok(file.seek(tempfile::SeekFrom::Current(0)), "cursor"), 0);
+}
