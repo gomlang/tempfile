@@ -1,6 +1,6 @@
 package tests;
 
-use consumer::tempfile as app;
+use ecosystem::tempfile::examples::basic as app;
 use ecosystem::tempfile;
 use std::fs;
 use std::env;
@@ -19,7 +19,7 @@ fn filesystem_roundtrip_ownership_permissions_and_concurrent_persist() -> () {
         let executable = testing::expect_ok(env::current_exe_structured(), "test executable");
         let scoped = testing::expect_ok(
             process::Command::new(executable).arg(
-                "consumer::tempfile::tests::public_api_across_registry_boundary",
+                "ecosystem::tempfile::examples::basic::tests::public_api_across_registry_boundary",
             ).env("TMPDIR", directory.path()).output_timeout_structured(
                 time::Duration::from_seconds(30),
             ),

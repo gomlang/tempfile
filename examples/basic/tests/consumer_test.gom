@@ -1,6 +1,6 @@
 package tests;
 
-use consumer::tempfile as app;
+use ecosystem::tempfile::examples::basic as app;
 use std::testing;
 
 #[test]

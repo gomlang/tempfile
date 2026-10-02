@@ -99,3 +99,15 @@ check the registry boundary and perform five isolated real-filesystem roundtrips
 verifying binary contents, private permissions, retained trees, scoped cleanup
 and 160 concurrent persists. The shared verifier runs generated GoML tests with
 Go's race detector.
+
+## Development and examples
+
+Requires GoML 0.1.55 or newer. The `examples/basic/` example shares the root manifest. From the library root, run:
+
+```sh
+goml run --example basic
+goml test
+goml verify --timeout 300s
+```
+
+`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test tempfile)` also retains the library-specific smoke and compatibility checks.
