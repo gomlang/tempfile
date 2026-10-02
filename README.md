@@ -69,6 +69,21 @@ original memory state if rollover fails. Positioned operations are synchronized
 with close and spool rollover; callers must separately synchronize overlapping
 writes or shared output buffers.
 
+All three file types also offer `read_exact_at(buffer, offset)` and
+`write_all_at(buffer, offset)`. They advance only the explicit offset through
+partial transfers, retry interrupted operations, reject negative/overflowing
+ranges before I/O, and preserve the sequential cursor. Premature EOF returns
+`UnexpectedEof`; a zero-progress write returns `WriteZero`. Any completed prefix
+remains transferred after failure. Empty buffers still require a live handle.
+
+Named and spooled handles retain their ownership/state lock for the complete
+operation, preventing transfer, close, or rollover from interleaving between
+partial transfers. An anonymous `File` instead retains one temporary duplicate
+descriptor until completion; closing the original after admission does not
+invalidate that operation. The duplicate is released on error and panic as well
+as success. These operations do not provide an atomic snapshot against external
+writers or aliases to the same file.
+
 ## Ownership and cleanup
 
 GoML values can be copied freely. Copies of one resource share a synchronized lifecycle: successful `keep`, `persist`, or `into_file` disables every old alias. Closing an old alias cannot close the newly returned `File`. Failed persistence leaves the original object open and still responsible for cleanup, so it can be retried or closed. A reopened or duplicated `File` has an independent close lifecycle; it remains usable after the original named file is removed.

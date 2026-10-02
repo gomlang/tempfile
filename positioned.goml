@@ -1,0 +1,117 @@
+package tempfile;
+
+use std::io;
+
+fn positioned_range(offset: i64, length: isize) -> Result[(), io::Error] {
+    if offset < 0 || offset > 9223372036854775807 - length.to_i64() {
+        Result::Err(
+            failure(io::ErrorKind::InvalidInput, "positioned IO", "offset range exceeds i64"),
+        )
+    } else {
+        Result::Ok(())
+    }
+}
+
+fn read_exact_positioned(
+    buffer: MutSlice[byte],
+    offset: i64,
+    read: (MutSlice[byte], i64) -> Result[isize, io::Error],
+) -> Result[(), io::Error] {
+    positioned_range(offset, buffer.len())?;
+    let mut completed = 0;
+    while completed < buffer.len() {
+        let count = match read(buffer.sub(completed, buffer.len()), offset + completed.to_i64()) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Result::Err(
+                failure(
+                    io::ErrorKind::UnexpectedEof,
+                    "read exact at",
+                    "file ended before filling buffer",
+                ),
+            )
+        }
+        if count < 0 || count > buffer.len() - completed {
+            return Result::Err(
+                failure(io::ErrorKind::InvalidData, "read exact at", "invalid byte count"),
+            )
+        }
+        completed += count;
+    }
+    Result::Ok(())
+}
+
+fn write_all_positioned(
+    buffer: Slice[byte],
+    offset: i64,
+    write: (Slice[byte], i64) -> Result[isize, io::Error],
+) -> Result[(), io::Error] {
+    positioned_range(offset, buffer.len())?;
+    let mut completed = 0;
+    while completed < buffer.len() {
+        let count = match write(buffer.sub(completed, buffer.len()), offset + completed.to_i64()) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Result::Err(
+                failure(io::ErrorKind::WriteZero, "write all at", "file write made no progress"),
+            )
+        }
+        if count < 0 || count > buffer.len() - completed {
+            return Result::Err(
+                failure(io::ErrorKind::InvalidData, "write all at", "invalid byte count"),
+            )
+        }
+        completed += count;
+    }
+    Result::Ok(())
+}
+
+impl File {
+    pub fn read_exact_at(self: File, buffer: MutSlice[byte], offset: i64) -> Result[(), io::Error] {
+        let retained = self.duplicate()?;
+        defer {
+            let _ = retained.close();
+        };
+        read_exact_positioned(buffer, offset, |target, position| retained.read_at(target, position))
+    }
+
+    pub fn write_all_at(self: File, buffer: Slice[byte], offset: i64) -> Result[(), io::Error] {
+        let retained = self.duplicate()?;
+        defer {
+            let _ = retained.close();
+        };
+        write_all_positioned(buffer, offset, |input, position| retained.write_at(input, position))
+    }
+}
+
+impl NamedTempFile {
+    pub fn read_exact_at(self: NamedTempFile, buffer: MutSlice[byte], offset: i64) -> Result[
+        (),
+        io::Error,
+    ] {
+        self.owned.access(
+            |descriptor| read_exact_positioned(
+                buffer,
+                offset,
+                |target, position| descriptor.read_at(target, position),
+            ),
+        )
+    }
+
+    pub fn write_all_at(self: NamedTempFile, buffer: Slice[byte], offset: i64) -> Result[
+        (),
+        io::Error,
+    ] {
+        self.owned.access(
+            |descriptor| write_all_positioned(
+                buffer,
+                offset,
+                |input, position| descriptor.write_at(input, position),
+            ),
+        )
+    }
+}
