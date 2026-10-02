@@ -1,0 +1,93 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::io;
+use io::{Read, Write};
+use std::task;
+use std::testing;
+
+#[test]
+fn positioned_spool_io_preserves_cursor_across_rollover_and_sparse_writes() -> () {
+    let file = must(tempfile::SpooledTempFile::new(4));
+    defer {
+        let _ = file.close();
+    };
+    must(file.write_all(content("abcd").as_slice()));
+    must(file.seek(tempfile::SeekFrom::Start(2)));
+    testing::assert_eq(must(file.write_at(content("X").as_slice(), 0)), 1);
+    testing::assert(!file.is_rolled());
+    let buffer = Vec::from_array([0, 0, 0, 0]);
+    testing::assert_eq(must(file.read_at(buffer.as_mut_slice(), 0)), 4);
+    testing::assert(buffer == content("Xbcd").to_vec());
+    testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 2);
+    testing::assert_eq(must(file.write_at(content("z").as_slice(), 6)), 1);
+    testing::assert(file.is_rolled());
+    testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 2);
+    testing::assert_eq(must(file.read_at(buffer.as_mut_slice(), 4)), 3);
+    testing::assert(buffer.slice(0, 3).to_vec() == Vec::from_array([0, 0, b'z']));
+    testing::assert_eq(must(file.read_at(buffer.as_mut_slice(), 99)), 0);
+    testing::assert_err(file.read_at(buffer.as_mut_slice(), -1));
+    testing::assert_err(file.write_at(content("x").as_slice(), -1));
+    testing::assert_err(file.write_at(content("x").as_slice(), 9223372036854775807));
+    must(file.close());
+    testing::assert_err(file.read_at(buffer.as_mut_slice(), 0));
+    testing::assert_err(file.write_at(content("x").as_slice(), 0));
+}
+
+#[test]
+fn named_and_anonymous_positioned_io_share_data_without_moving_duplicate_cursor() -> () {
+    let named = must(tempfile::NamedTempFile::new());
+    defer {
+        let _ = named.close();
+    };
+    must(named.write_all(content("abcd").as_slice()));
+    let duplicate = must(named.duplicate());
+    defer {
+        let _ = duplicate.close();
+    };
+    testing::assert_eq(must(named.write_at(content("XY").as_slice(), 1)), 2);
+    testing::assert_eq(must(duplicate.seek(tempfile::SeekFrom::Current(0))), 4);
+    let buffer = Vec::from_array([0, 0, 0, 0]);
+    testing::assert_eq(must(duplicate.read_at(buffer.as_mut_slice(), 0)), 4);
+    testing::assert(buffer == content("aXYd").to_vec());
+    let file = must(named.into_file());
+    defer {
+        let _ = file.close();
+    };
+    testing::assert_err(named.read_at(buffer.as_mut_slice(), 0));
+    testing::assert_eq(must(file.write_at(content("!").as_slice(), 0)), 1);
+    testing::assert_eq(must(file.read_at(buffer.as_mut_slice(), 0)), 4);
+    testing::assert(buffer == content("!XYd").to_vec());
+    testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 4);
+}
+
+#[test]
+fn concurrent_positioned_spool_writes_preserve_all_regions() -> () {
+    let file = must(tempfile::SpooledTempFile::new(8));
+    defer {
+        let _ = file.close();
+    };
+    must(file.seek(tempfile::SeekFrom::Start(3)));
+    task::scope(
+        |scope| {
+            for index in 0..32 {
+                let _ = scope.spawn(
+                    |_| {
+                        let value = Vec::from_array([index.to_u8()]);
+                        testing::assert_eq(must(file.write_at(value.as_slice(), index.to_i64())), 1);
+                    },
+                );
+            }
+        },
+    );
+    testing::assert(file.is_rolled());
+    testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 3);
+    let output = Vec::new();
+    for _ in 0..32 {
+        output.push(0);
+    }
+    testing::assert_eq(must(file.read_at(output.as_mut_slice(), 0)), 32);
+    for index in 0..32 {
+        testing::assert_eq(output[index], index.to_u8());
+    }
+}

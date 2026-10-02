@@ -1,0 +1,21 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::testing;
+
+#[test]
+fn positioned_spool_io_crosses_package_boundary() -> () {
+    let file = testing::expect_ok(tempfile::SpooledTempFile::new(1), "spool");
+    defer {
+        let _ = file.close();
+    };
+    testing::assert_eq(
+        testing::expect_ok(file.write_at(Vec::from_array([b'x']).as_slice(), 3), "write at"),
+        1,
+    );
+    testing::assert(file.is_rolled());
+    testing::assert_eq(testing::expect_ok(file.seek(tempfile::SeekFrom::Current(0)), "cursor"), 0);
+    let output = Vec::from_array([0]);
+    testing::assert_eq(testing::expect_ok(file.read_at(output.as_mut_slice(), 3), "read at"), 1);
+    testing::assert_eq(output[0], b'x');
+}
