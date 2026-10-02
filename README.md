@@ -58,6 +58,17 @@ All file forms provide `len`, `seek(SeekFrom::Start/Current/End)`, `rewind`, `se
 
 Spooled files expose `is_rolled`, `rollover`, and `into_file`. Crossing the limit by writing or extending the length spills once; shrinking does not move a file back to memory. Explicit rollover preserves contents and cursor, including a cursor beyond EOF. A failed rollover keeps the in-memory contents and position for retry. A zero limit spills on the first nonempty write; empty writes neither extend nor spill. `into_file` forces rollover and transfers its anonymous descriptor. The builder's parent directory is accessed only when a disk file is needed.
 
+`File`, `NamedTempFile`, and `SpooledTempFile` expose
+`read_at(buffer, offset)` and `write_at(buffer, offset)` with nonnegative `i64`
+offsets. They return the bytes transferred and leave the shared sequential
+cursor unchanged, including when a positioned spool write triggers rollover.
+Reads at or beyond EOF return zero; writes beyond EOF zero-fill the gap. Native
+file calls may transfer fewer bytes than requested. Spool writes stay in memory
+through the configured threshold, reject offset overflow, and preserve the
+original memory state if rollover fails. Positioned operations are synchronized
+with close and spool rollover; callers must separately synchronize overlapping
+writes or shared output buffers.
+
 ## Ownership and cleanup
 
 GoML values can be copied freely. Copies of one resource share a synchronized lifecycle: successful `keep`, `persist`, or `into_file` disables every old alias. Closing an old alias cannot close the newly returned `File`. Failed persistence leaves the original object open and still responsible for cleanup, so it can be retried or closed. A reopened or duplicated `File` has an independent close lifecycle; it remains usable after the original named file is removed.

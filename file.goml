@@ -4,6 +4,14 @@ use std::io;
 use std::os::linux::fd;
 
 impl File {
+    pub fn read_at(self: File, buffer: MutSlice[byte], offset: i64) -> Result[isize, io::Error] {
+        self.descriptor.read_at(buffer, offset)
+    }
+
+    pub fn write_at(self: File, buffer: Slice[byte], offset: i64) -> Result[isize, io::Error] {
+        self.descriptor.write_at(buffer, offset)
+    }
+
     pub fn close(self: File) -> Result[(), io::Error] {
         self.descriptor.close()
     }
@@ -73,6 +81,20 @@ impl io::Close for File {
 }
 
 impl NamedTempFile {
+    pub fn read_at(self: NamedTempFile, buffer: MutSlice[byte], offset: i64) -> Result[
+        isize,
+        io::Error,
+    ] {
+        self.owned.access(|descriptor| descriptor.read_at(buffer, offset))
+    }
+
+    pub fn write_at(self: NamedTempFile, buffer: Slice[byte], offset: i64) -> Result[
+        isize,
+        io::Error,
+    ] {
+        self.owned.access(|descriptor| descriptor.write_at(buffer, offset))
+    }
+
     pub fn new() -> Result[NamedTempFile, io::Error] {
         Builder::new().tempfile()
     }
