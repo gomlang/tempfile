@@ -1,0 +1,58 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::io;
+use io::{Read, Write};
+use std::testing;
+
+#[test]
+fn spool_reads_preserve_subslice_guards_and_cursor_across_rollover() -> () {
+    let data = Vec::new();
+    for index in 0..65539 {
+        data.push((index % 251).to_u8());
+    }
+    let file = must(tempfile::SpooledTempFile::new(data.len()));
+    defer {
+        let _ = file.close();
+    };
+    must(file.write_all(data.as_slice()));
+    for rolled in[false, true] {
+        if rolled {
+            must(file.rollover());
+        }
+        for size in[0, 1, 7, 4096, 65536] {
+            let output = Vec::new();
+            for _ in 0..size + 2 {
+                output.push(255.to_u8());
+            }
+            let target = output.as_mut_slice().sub(1, size + 1);
+            must(file.seek(tempfile::SeekFrom::Start(2)));
+            testing::assert_eq(must(file.read_at(target, 3)), size);
+            testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), 2);
+            testing::assert(output.slice(1, size + 1).to_vec() == data.slice(3, size + 3).to_vec());
+            testing::assert_eq(output[0], 255);
+            testing::assert_eq(output[size + 1], 255);
+            testing::assert_eq(must(file.read(target)), size);
+            testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), (size + 2).to_u64());
+            testing::assert(output.slice(1, size + 1).to_vec() == data.slice(2, size + 2).to_vec());
+            testing::assert_eq(output[0], 255);
+            testing::assert_eq(output[size + 1], 255);
+        }
+        let tail = Vec::from_array([255.to_u8(); 9]);
+        let target = tail.as_mut_slice().sub(1, 8);
+        must(file.seek(tempfile::SeekFrom::End(-3)));
+        testing::assert_eq(must(file.read(target)), 3);
+        testing::assert(
+            tail.slice(1, 4).to_vec() == data.slice(data.len() - 3, data.len()).to_vec(),
+        );
+        testing::assert_eq(tail[0], 255);
+        for index in 4..9 {
+            testing::assert_eq(tail[index], 255);
+        }
+        let previous = tail.as_slice().to_vec();
+        testing::assert_eq(must(file.read(target)), 0);
+        testing::assert_eq(must(file.read_at(target, data.len().to_i64() + 1)), 0);
+        testing::assert(tail == previous);
+        testing::assert_eq(must(file.seek(tempfile::SeekFrom::Current(0))), data.len().to_u64());
+    }
+}

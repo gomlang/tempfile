@@ -203,9 +203,8 @@ impl SpooledTempFile {
                 } else {
                     buffer.len()
                 };
-                for index in 0..count {
-                    buffer[index] = memory.data[offset.to_isize() + index];
-                }
+                let start = offset.to_isize();
+                let _ = buffer.copy_from(0, memory.data.slice(start, start + count));
                 Result::Ok(count)
             },
         }
@@ -341,9 +340,8 @@ impl io::Read for SpooledTempFile {
                     } else {
                         buffer.len()
                     };
-                    for index in 0..count {
-                        buffer[index] = memory.data[memory.position.to_isize() + index];
-                    }
+                    let start = memory.position.to_isize();
+                    let _ = buffer.copy_from(0, memory.data.slice(start, start + count));
                     memory.position += count.to_i64();
                     state.set(SpoolState::Memory(memory));
                     Result::Ok(count)
