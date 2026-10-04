@@ -149,36 +149,8 @@ impl Managed {
                 if anonymous {
                     self.parent.with_raw_fd(|raw| fd::unlink_at(raw.to_isize(), self.name, 0))?;
                 } else if let Some(destination) = destination {
-                    if destination == "" || destination.ends_with("/") {
-                        return Result::Err(
-                            failure(
-                                io::ErrorKind::InvalidInput,
-                                "persist temporary resource",
-                                "destination must name a file or directory",
-                            ),
-                        )
-                    }
-                    let name = path::file_name(destination).ok_or(
-                        failure(
-                            io::ErrorKind::InvalidInput,
-                            "persist temporary resource",
-                            "destination must have a file name",
-                        ),
-                    )?;
-                    if name == "." || name == ".." {
-                        return Result::Err(
-                            failure(
-                                io::ErrorKind::InvalidInput,
-                                "persist temporary resource",
-                                "invalid destination name",
-                            ),
-                        )
-                    }
-                    let target_parent = fd::open(
-                        path::parent(destination).unwrap_or("."),
-                        fd::O_RDONLY | fd::O_DIRECTORY,
-                        0,
-                    )?;
+                    let (parent, name) = destination_parts(destination)?;
+                    let target_parent = fd::open(parent, fd::O_RDONLY | fd::O_DIRECTORY, 0)?;
                     defer {
                         let _ = target_parent.close();
                     };
@@ -246,7 +218,10 @@ impl io::Close for TempDir {
 }
 
 fn absolute_path(value: string) -> Result[string, io::Error] {
-    path::absolute_structured(value).map_err(
+    if value.starts_with("/") {
+        return Result::Ok(value)
+    }
+    let current = path::absolute_structured(".").map_err(
         |error| io::Error::new(
             error.kind(),
             error.operation(),
@@ -254,5 +229,35 @@ fn absolute_path(value: string) -> Result[string, io::Error] {
             error.raw_os_code(),
             error.message(),
         ),
-    )
+    )?;
+    let absolute = if value == "" {
+        current
+    } else {
+        current + "/" + value
+    };
+    Result::Ok(absolute)
+}
+
+fn destination_parts(destination: string) -> Result[(string, string), io::Error] {
+    // Keep symlinks and parent components for kernel resolution.
+    let mut start = destination.byte_len();
+    while start > 0 && destination.byte_get(start - 1) != b'/' {
+        start -= 1;
+    }
+    let name = destination.byte_slice(start, destination.byte_len());
+    if name == "" || name == "." || name == ".." {
+        return Result::Err(
+            failure(
+                io::ErrorKind::InvalidInput,
+                "persist temporary resource",
+                "destination must end with a file or directory name",
+            ),
+        )
+    }
+    let parent = if start == 0 {
+        "."
+    } else {
+        destination.byte_slice(0, start)
+    };
+    Result::Ok((parent, name))
 }

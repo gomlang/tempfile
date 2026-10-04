@@ -107,6 +107,12 @@ A parent directory descriptor is retained until cleanup or transfer. Operations 
 
 Persistence uses Linux `renameat2`; `persist` sets `RENAME_NOREPLACE`, including for existing symlinks and empty directories. `persist_overwrite` replaces a symlink itself rather than its target. Cross-filesystem moves and kernels/filesystems without the required rename operation return an error; there is no non-atomic copy fallback. Persistence does not fsync the file or destination directory automatically, so atomic visibility is separate from crash durability.
 
+Creation and persistence preserve parent path components for kernel resolution.
+For example, `link/../output` follows `link` before interpreting `..`; missing or
+non-directory components remain errors. Recorded and returned paths are absolute
+but may retain `.` or `..` to name the same resource. Persistence rejects a final
+`.` or `..`, an empty destination, and a trailing slash without transferring ownership.
+
 The recorded `path()` can become stale after parent renames. Device/inode checks detect pathname substitution before reopening, cleanup, and transfer, but they do not provide a transaction against hostile concurrent filesystem changes. Use a trusted parent for long-lived named resources, keep untrusted code from modifying their directories, and prefer anonymous files when a name is unnecessary. Directory cleanup is not a sandbox and assumes no concurrent hostile renames or mount changes.
 
 Lifecycle methods are synchronized for copies of the same object. Named-file `read_exact` and `write_all` hold that object's lock for the entire operation. Separate `seek` and `read` calls are distinct operations, and duplicated descriptors share an offset. Do not concurrently mutate input/output byte buffers supplied to any I/O method. There is no async or cancellation-specific file API.

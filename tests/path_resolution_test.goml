@@ -1,0 +1,144 @@
+package tests;
+
+use ecosystem::tempfile;
+use std::fs;
+use std::io;
+use io::Write;
+use std::path;
+use std::testing;
+
+fn linked_parent(root: tempfile::TempDir) -> string {
+    testing::assert_ok(fs::create_dir_all(root.path() + "/real/child"));
+    testing::assert_ok(fs::symbolic_link(root.path() + "/real/child", root.path() + "/link"));
+    root.path() + "/link/.."
+}
+
+#[test]
+fn builder_preserves_symlink_parent_resolution_and_recorded_path() -> () {
+    let root = directory();
+    defer {
+        let _ = root.close();
+    };
+    let parent = linked_parent(root);
+    let file = must(tempfile::Builder::new().parent(parent).tempfile());
+    defer {
+        let _ = file.close();
+    };
+    let name = testing::expect_some(path::file_name(file.path()), "temporary name");
+    must(file.write_all(content("inside real").as_slice()));
+    testing::assert(fs::exists(root.path() + "/real/" + name));
+    testing::assert(!fs::exists(root.path() + "/" + name));
+    testing::assert_eq(
+        testing::expect_ok(fs::read_file_structured(file.path()), "recorded path"),
+        "inside real",
+    );
+    let nested = must(tempfile::Builder::new().parent(parent).tempdir());
+    defer {
+        let _ = nested.close();
+    };
+    let name = testing::expect_some(path::file_name(nested.path()), "temporary directory name");
+    testing::assert(fs::is_dir(root.path() + "/real/" + name));
+    testing::assert(fs::is_dir(nested.path()));
+}
+
+#[test]
+fn persistence_preserves_symlink_parent_resolution_and_returned_path() -> () {
+    let root = directory();
+    defer {
+        let _ = root.close();
+    };
+    let parent = linked_parent(root);
+    let named = must(tempfile::NamedTempFile::new_in(root.path()));
+    defer {
+        let _ = named.close();
+    };
+    must(named.write_all(content("new").as_slice()));
+    let kept = must(named.persist(parent + "/saved"));
+    must(kept.close());
+    testing::assert(fs::exists(root.path() + "/real/saved"));
+    testing::assert(!fs::exists(root.path() + "/saved"));
+    let replacement = must(tempfile::NamedTempFile::new_in(root.path()));
+    defer {
+        let _ = replacement.close();
+    };
+    must(replacement.write_all(content("replacement").as_slice()));
+    let kept = must(replacement.persist_overwrite(parent + "/saved"));
+    must(kept.close());
+    testing::assert_eq(
+        testing::expect_ok(
+            fs::read_file_structured(root.path() + "/real/saved"),
+            "overwrite target",
+        ),
+        "replacement",
+    );
+    let nested = must(tempfile::tempdir_in(root.path()));
+    defer {
+        let _ = nested.close();
+    };
+    testing::assert_ok(fs::write_file_structured(nested.path() + "/data", "tree"));
+    let returned = must(nested.persist(parent + "/saved-dir"));
+    testing::assert(fs::is_dir(root.path() + "/real/saved-dir"));
+    testing::assert(!fs::exists(root.path() + "/saved-dir"));
+    testing::assert_eq(
+        testing::expect_ok(fs::read_file_structured(returned + "/data"), "returned path"),
+        "tree",
+    );
+}
+
+#[test]
+fn persistence_rejects_dot_components_before_cleaning_destination() -> () {
+    let root = directory();
+    defer {
+        let _ = root.close();
+    };
+    let named = must(tempfile::NamedTempFile::new_in(root.path()));
+    defer {
+        let _ = named.close();
+    };
+    for destination in Vec::from_array(
+        [root.path() + "/missing/.", root.path() + "/missing/..", ".", "..", "", root.path() + "/"],
+    ) {
+        let result = named.persist_overwrite(destination);
+        if let Ok(file) = result {
+            must(file.close());
+        }
+        testing::assert_eq(
+            testing::expect_err(result, "invalid destination").kind(),
+            io::ErrorKind::InvalidInput,
+        );
+        testing::assert(!named.is_closed());
+        testing::assert(fs::exists(named.path()));
+        testing::assert(!fs::exists(root.path() + "/missing"));
+    }
+    let kept = must(named.persist(root.path() + "/retry"));
+    must(kept.close());
+}
+
+#[test]
+fn missing_or_regular_parent_components_are_not_lexically_removed() -> () {
+    let root = directory();
+    defer {
+        let _ = root.close();
+    };
+    testing::assert_ok(fs::write_file_structured(root.path() + "/regular", "file"));
+    for component in Vec::from_array(["missing", "regular"]) {
+        let parent = root.path() + "/" + component + "/..";
+        let created = tempfile::Builder::new().parent(parent).tempfile();
+        if let Ok(file) = created {
+            must(file.close());
+        }
+        testing::assert_err(created);
+        let named = must(tempfile::NamedTempFile::new_in(root.path()));
+        defer {
+            let _ = named.close();
+        };
+        let persisted = named.persist(parent + "/saved");
+        if let Ok(file) = persisted {
+            must(file.close());
+        }
+        testing::assert_err(persisted);
+        testing::assert(!named.is_closed());
+        testing::assert(fs::exists(named.path()));
+        testing::assert(!fs::exists(root.path() + "/saved"));
+    }
+}

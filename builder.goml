@@ -4,7 +4,6 @@ use std::crypto::rand;
 use std::env;
 use std::io;
 use std::os::linux::fd;
-use std::path;
 
 pub struct Builder {
     parent_value: Option[string],
@@ -151,7 +150,7 @@ impl Builder {
                 Ok(descriptor) => {
                     transferred.set(true);
                     return Result::Ok(
-                        managed(descriptor, parent, name, path::join(parent_path, name), directory),
+                        managed(descriptor, parent, name, parent_path + "/" + name, directory),
                     )
                 },
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {},
