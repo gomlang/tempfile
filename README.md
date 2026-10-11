@@ -24,7 +24,7 @@ fn example() -> Result[string, tempfile::ScopeError] {
 }
 ```
 
-Add `"ecosystem::tempfile" = "0.1.0"` to the module manifest after publishing to a registry. The repository verification runner supplies an isolated local registry snapshot for development.
+Add `"ecosystem::tempfile" = true` to the module manifest after publishing to a registry. The repository verification runner supplies an isolated local registry snapshot for development.
 
 ## API
 
@@ -134,12 +134,12 @@ Go's race detector.
 
 ## Development and examples
 
-Requires GoML 0.1.56 or newer. The `examples/basic/` example shares the root manifest. From the library root, run:
+Requires a current GoML toolchain supporting unversioned registry dependencies; see [the pinned ecosystem toolchain](https://github.com/gomlang/verification/blob/main/ci/toolchain.json). The `examples/basic/` example shares the root manifest. From the library root, run:
 
 ```sh
 goml run --example basic
 goml test
-goml verify --timeout 300s
+(cd ../verification && just ecosystem-test tempfile)
 ```
 
-`goml test` builds the example and runs its tests. `goml verify` repeats the example checks as an independent module against an isolated registry snapshot. `(cd ../verification && just ecosystem-test tempfile)` also retains the library-specific smoke and compatibility checks.
+`goml test` builds the example and runs its tests. The ecosystem verifier uses an isolated registry snapshot and runs the library-specific smoke and compatibility checks.
