@@ -120,7 +120,7 @@ Lifecycle methods are synchronized for copies of the same object. Named-file `re
 ## Local validation
 
 ```sh
-(cd ../verification && just ecosystem-test tempfile)
+(cd ../workflows && just ecosystem-test tempfile)
 ```
 
 GoML tests cover permissions, validation, complete I/O, sparse writes,
@@ -134,12 +134,12 @@ Go's race detector.
 
 ## Development and examples
 
-Requires a current GoML toolchain supporting unversioned registry dependencies; see [the pinned ecosystem toolchain](https://github.com/gomlang/verification/blob/main/ci/toolchain.json). The `examples/basic/` example shares the root manifest. From the library root, run:
+Requires a current GoML toolchain supporting unversioned registry dependencies; see [the pinned ecosystem toolchain](https://github.com/gomlang/workflows/blob/main/ci/toolchain.json). The `examples/basic/` example shares the root manifest. From the library root, run:
 
 ```sh
 goml run --example basic
 goml test
-(cd ../verification && just ecosystem-test tempfile)
+(cd ../workflows && just ecosystem-test tempfile)
 ```
 
 `goml test` builds the example and runs its tests. The ecosystem verifier uses an isolated registry snapshot and runs the library-specific smoke and compatibility checks.
