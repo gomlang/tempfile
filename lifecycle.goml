@@ -213,7 +213,7 @@ impl TempDir {
 
 impl io::Close for TempDir {
     fn close(self: TempDir) -> Result[(), io::Error] {
-        self.close()
+        self.owned.close()
     }
 }
 

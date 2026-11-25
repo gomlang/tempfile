@@ -311,6 +311,10 @@ impl SpooledTempFile {
     }
 
     pub fn close(self: SpooledTempFile) -> Result[(), io::Error] {
+        self.close_storage()
+    }
+
+    fn close_storage(self: SpooledTempFile) -> Result[(), io::Error] {
         self.locked(
             |state| {
                 let previous = state.get();
@@ -400,6 +404,6 @@ impl io::Write for SpooledTempFile {
 
 impl io::Close for SpooledTempFile {
     fn close(self: SpooledTempFile) -> Result[(), io::Error] {
-        self.close()
+        self.close_storage()
     }
 }
